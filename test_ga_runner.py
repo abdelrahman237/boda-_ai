@@ -6,10 +6,10 @@ Tests basic functionality without running full experiments
 from datetime import datetime, timedelta
 from ga_runner import (
     generate_weekly_schedule, 
-    compute_fitness,
     run_genetic_algorithm,
     teams, venues, match_times, all_dates
 )
+from data.fitness import compute_fitness
 
 def test_basic_functionality():
     """Test basic GA functionality"""
