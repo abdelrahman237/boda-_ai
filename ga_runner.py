@@ -4,6 +4,12 @@ Person 4 - GA Engine + Experiments
 
 This module implements a complete genetic algorithm for optimizing
 sports tournament schedules with selection, crossover, mutation, and elitism.
+
+INTEGRATED WITH OTHER TASKS:
+- Uses schedule_generator from Task 1
+- Uses genetic_operations from Task 3
+- Uses fitness from Task 2
+- No code duplication!
 """
 
 import random
@@ -15,11 +21,23 @@ from typing import List, Tuple, Dict, Any
 import sys
 import os
 
-# Import shared modules - try different paths
+# Import shared modules - Task 1, 2, 3
 try:
     from data.models import Match
     from data.fitness import compute_fitness
     from data.teams_venues_times import teams, venues, match_times
+    from data.schedule_generator import generate_weekly_schedule  # Task 1
+    from data.genetic_operations import (  # Task 3
+        single_point_crossover,
+        two_point_crossover,
+        uniform_crossover,
+        swap_mutation,
+        change_venue_mutation,
+        change_time_mutation,
+        tournament_selection,
+        roulette_wheel_selection,
+        rank_selection
+    )
 except ImportError:
     # If direct import fails, add to path
     data_path = os.path.join(os.path.dirname(__file__), 'data')
@@ -28,6 +46,18 @@ except ImportError:
     from models import Match
     from fitness import compute_fitness
     from teams_venues_times import teams, venues, match_times
+    from schedule_generator import generate_weekly_schedule
+    from genetic_operations import (
+        single_point_crossover,
+        two_point_crossover,
+        uniform_crossover,
+        swap_mutation,
+        change_venue_mutation,
+        change_time_mutation,
+        tournament_selection,
+        roulette_wheel_selection,
+        rank_selection
+    )
 
 # Tournament period
 start_date = datetime(2025, 5, 1)
@@ -41,104 +71,25 @@ while current_date <= end_date:
     current_date += timedelta(days=1)
 
 
-def generate_weekly_schedule(teams, venues, all_dates, match_times, min_rest_days=4):
-    """
-    Generate complete schedule: 18 teams × 17 opponents × 2 = 306 matches
-    Each team plays every other team twice (home and away)
-    """
-    schedule = []
-    last_played = {team: start_date - timedelta(days=min_rest_days) for team in teams}
-    day_info = {d: {'count': 0, 'venues': set(), 'times': set()} for d in all_dates}
-    
-    # Generate all required pairings (home and away for each pair)
-    pairings = []
-    for t1 in teams:
-        for t2 in teams:
-            if t1 != t2:
-                pairings.append((t1, t2))  # Home and away matches
-    
-    random.shuffle(pairings)
-    matches_count = {(t1, t2): 0 for t1 in teams for t2 in teams if t1 != t2}
-    required_matches = 2  # Each pair plays twice (home and away)
-    
-    # Try to schedule matches across all available dates
-    for home, away in pairings:
-        if matches_count[(home, away)] >= required_matches:
-            continue
-        
-        # Find available date with rest day constraints
-        possible_dates = [
-            d for d in all_dates
-            if (d - last_played[home]).days >= min_rest_days
-            and (d - last_played[away]).days >= min_rest_days
-            and day_info[d]['count'] < 2  # Max 2 matches per day
-        ]
-        
-        if not possible_dates:
-            # Try with relaxed constraints (only venue/time availability)
-            possible_dates = [
-                d for d in all_dates
-                if day_info[d]['count'] < 2
-            ]
-        
-        if not possible_dates:
-            continue
-        
-        random.shuffle(possible_dates)
-        scheduled = False
-        
-        for date in possible_dates:
-            available_times = [t for t in match_times if t not in day_info[date]['times']]
-            available_venues = [v for v in venues if v not in day_info[date]['venues']]
-            
-            if available_times and available_venues:
-                time = random.choice(available_times)
-                venue = random.choice(available_venues)
-                match = Match(home, away, date, time, venue)
-                schedule.append(match)
-                last_played[home] = date
-                last_played[away] = date
-                matches_count[(home, away)] += 1
-                day_info[date]['count'] += 1
-                day_info[date]['venues'].add(venue)
-                day_info[date]['times'].add(time)
-                scheduled = True
-                break
-        
-        # If still couldn't schedule, try any available slot
-        if not scheduled and matches_count[(home, away)] < required_matches:
-            for date in all_dates:
-                if day_info[date]['count'] < 2:
-                    available_times = [t for t in match_times if t not in day_info[date]['times']]
-                    available_venues = [v for v in venues if v not in day_info[date]['venues']]
-                    if available_times and available_venues:
-                        time = random.choice(available_times)
-                        venue = random.choice(available_venues)
-                        match = Match(home, away, date, time, venue)
-                        schedule.append(match)
-                        last_played[home] = date
-                        last_played[away] = date
-                        matches_count[(home, away)] += 1
-                        day_info[date]['count'] += 1
-                        day_info[date]['venues'].add(venue)
-                        day_info[date]['times'].add(time)
-                        break
-
-    schedule.sort(key=lambda m: m.date)
-    return schedule
+# generate_weekly_schedule is now imported from data.schedule_generator (Task 1)
 
 
 # ==================== VALIDATION FUNCTIONS ====================
 
 def validate_schedule(schedule, teams, min_rest_days=4):
     """
-    Validate schedule constraints
+    Validate schedule constraints with comprehensive checks
     
     Returns:
     --------
     tuple: (is_valid: bool, errors: List[str])
     """
     errors = []
+    expected_matches = len(teams) * (len(teams) - 1)  # 18 × 17 = 306
+    
+    # Check total match count
+    if len(schedule) != expected_matches:
+        errors.append(f"Expected {expected_matches} matches, got {len(schedule)}")
     
     # Check for duplicate matches (same teams, same date)
     seen_matches = {}
@@ -153,6 +104,34 @@ def validate_schedule(schedule, teams, min_rest_days=4):
         if match.team1 == match.team2:
             errors.append(f"Team playing itself: {match}")
     
+    # Check match count per team (should be 34: 17 opponents × 2)
+    team_match_count = {team: 0 for team in teams}
+    for match in schedule:
+        team_match_count[match.team1] += 1
+        team_match_count[match.team2] += 1
+    
+    expected_per_team = (len(teams) - 1) * 2  # 17 × 2 = 34
+    for team in teams:
+        if team_match_count.get(team, 0) != expected_per_team:
+            errors.append(f"Team {team} has {team_match_count.get(team, 0)} matches, expected {expected_per_team}")
+    
+    # Check home/away balance for each pair
+    pair_matches = {}
+    for match in schedule:
+        pair = tuple(sorted([match.team1, match.team2]))
+        if pair not in pair_matches:
+            pair_matches[pair] = {'home': 0, 'away': 0}
+        
+        # Determine if team1 is home or away based on pair order
+        if match.team1 == pair[0]:
+            pair_matches[pair]['home'] += 1
+        else:
+            pair_matches[pair]['away'] += 1
+    
+    for pair, counts in pair_matches.items():
+        if counts['home'] != 1 or counts['away'] != 1:
+            errors.append(f"Pair {pair} has unbalanced home/away: home={counts['home']}, away={counts['away']} (expected 1 each)")
+    
     # Check rest days
     last_played = {}
     for match in schedule:
@@ -160,7 +139,7 @@ def validate_schedule(schedule, teams, min_rest_days=4):
             if team in last_played:
                 delta = (match.date - last_played[team]).days
                 if delta < min_rest_days:
-                    errors.append(f"Rest violation: {team} played {delta} days apart")
+                    errors.append(f"Rest violation: {team} played {delta} days apart (min {min_rest_days} required)")
             last_played[team] = match.date
     
     # Check venue conflicts
@@ -171,307 +150,207 @@ def validate_schedule(schedule, teams, min_rest_days=4):
             errors.append(f"Venue conflict: {match}")
         venue_slots[key] = True
     
+    # Check consecutive home matches (no team should have 3+ consecutive home matches)
+    team_schedule = {team: [] for team in teams}
+    for match in schedule:
+        team_schedule[match.team1].append(('home', match.date))
+        team_schedule[match.team2].append(('away', match.date))
+    
+    for team, matches in team_schedule.items():
+        matches.sort(key=lambda x: x[1])
+        consecutive_home = 0
+        for match_type, date in matches:
+            if match_type == 'home':
+                consecutive_home += 1
+                if consecutive_home >= 3:
+                    errors.append(f"Team {team} has {consecutive_home} consecutive home matches")
+                    break
+            else:
+                consecutive_home = 0
+    
     return len(errors) == 0, errors
 
 
-def repair_schedule(schedule, teams, venues, match_times, all_dates, min_rest_days=4):
+def regenerate_missing_matches(schedule, teams, venues, match_times, all_dates, min_rest_days=4):
+    """
+    Regenerate missing matches to reach 306 matches
+    """
+    expected_matches = len(teams) * (len(teams) - 1)  # 306
+    current_count = len(schedule)
+    
+    if current_count >= expected_matches:
+        return schedule
+    
+    # Track existing matches
+    existing_pairs = set()
+    for match in schedule:
+        existing_pairs.add((match.team1, match.team2))
+    
+    # Track venue/time usage per day
+    day_info = {}
+    for match in schedule:
+        if match.date not in day_info:
+            day_info[match.date] = {'count': 0, 'venues': set(), 'times': set()}
+        day_info[match.date]['count'] += 1
+        day_info[match.date]['venues'].add(match.venue)
+        day_info[match.date]['times'].add(match.time)
+    
+    # Find missing pairings
+    missing_pairings = []
+    for t1 in teams:
+        for t2 in teams:
+            if t1 != t2 and (t1, t2) not in existing_pairs:
+                missing_pairings.append((t1, t2))
+    
+    random.shuffle(missing_pairings)
+    
+    # Try to schedule missing matches
+    for home, away in missing_pairings:
+        if len(schedule) >= expected_matches:
+            break
+        
+        # Find available slot
+        for date in all_dates:
+            if len(schedule) >= expected_matches:
+                break
+            
+            if date not in day_info:
+                day_info[date] = {'count': 0, 'venues': set(), 'times': set()}
+            
+            if day_info[date]['count'] < 2:  # Max 2 matches per day
+                available_times = [t for t in match_times if t not in day_info[date]['times']]
+                available_venues = [v for v in venues if v not in day_info[date]['venues']]
+                
+                if available_times and available_venues:
+                    time = random.choice(available_times)
+                    venue = random.choice(available_venues)
+                    match = Match(home, away, date, time, venue)
+                    schedule.append(match)
+                    day_info[date]['count'] += 1
+                    day_info[date]['venues'].add(venue)
+                    day_info[date]['times'].add(time)
+                    break
+    
+    return schedule
+
+
+def repair_schedule(schedule, teams, venues, match_times, all_dates, min_rest_days=4, max_retries=5):
     """
     Repair invalid schedule by removing duplicates and fixing conflicts
+    Includes retry mechanism and match regeneration
     
     Returns:
     --------
     List[Match]: Repaired schedule
     """
-    # Remove duplicates and self-play matches
-    seen = set()
-    valid_schedule = []
-    for match in schedule:
-        key = (match.team1, match.team2, match.date)
-        if key not in seen and match.team1 != match.team2:
-            seen.add(key)
-            valid_schedule.append(match)
+    best_repaired = schedule
+    best_match_count = len(schedule)
+    expected_matches = len(teams) * (len(teams) - 1)  # 306
     
-    # Remove venue conflicts (keep first occurrence)
-    venue_slots = {}
-    repaired = []
-    for match in valid_schedule:
-        key = (match.date, match.time, match.venue)
-        if key not in venue_slots:
-            venue_slots[key] = True
-            repaired.append(match)
-        else:
-            # Try to fix by changing venue or time
-            available_venues = [v for v in venues if v != match.venue]
-            available_times = [t for t in match_times if t != match.time]
-            
-            fixed = False
-            for new_venue in available_venues:
-                new_key = (match.date, match.time, new_venue)
-                if new_key not in venue_slots:
-                    match.venue = new_venue
-                    venue_slots[new_key] = True
-                    repaired.append(match)
-                    fixed = True
-                    break
-            
-            if not fixed:
-                for new_time in available_times:
-                    new_key = (match.date, new_time, match.venue)
+    for retry in range(max_retries):
+        # Remove duplicates and self-play matches
+        seen = set()
+        valid_schedule = []
+        for match in schedule:
+            key = (match.team1, match.team2, match.date)
+            if key not in seen and match.team1 != match.team2:
+                seen.add(key)
+                valid_schedule.append(copy.deepcopy(match))
+        
+        # Remove venue conflicts (keep first occurrence)
+        venue_slots = {}
+        repaired = []
+        for match in valid_schedule:
+            key = (match.date, match.time, match.venue)
+            if key not in venue_slots:
+                venue_slots[key] = True
+                repaired.append(match)
+            else:
+                # Try to fix by changing venue or time
+                available_venues = [v for v in venues if v != match.venue]
+                available_times = [t for t in match_times if t != match.time]
+                
+                fixed = False
+                # Try changing venue first
+                for new_venue in available_venues:
+                    new_key = (match.date, match.time, new_venue)
                     if new_key not in venue_slots:
-                        match.time = new_time
+                        match.venue = new_venue
                         venue_slots[new_key] = True
                         repaired.append(match)
                         fixed = True
                         break
-    
-    return repaired
-
-
-# ==================== SELECTION METHODS ====================
-
-def tournament_selection(population, fitness_scores, tournament_size=3):
-    """Tournament selection: select best from random tournament"""
-    tournament_indices = random.sample(range(len(population)), min(tournament_size, len(population)))
-    tournament_fitness = [fitness_scores[i] for i in tournament_indices]
-    winner_idx = tournament_indices[tournament_fitness.index(max(tournament_fitness))]
-    return population[winner_idx]
-
-
-def roulette_wheel_selection(population, fitness_scores):
-    """Roulette wheel selection: probability proportional to fitness"""
-    # Normalize fitness scores to positive values
-    min_fitness = min(fitness_scores)
-    adjusted_fitness = [f - min_fitness + 1 for f in fitness_scores]
-    total_fitness = sum(adjusted_fitness)
-    
-    if total_fitness == 0:
-        return random.choice(population)
-    
-    probabilities = [f / total_fitness for f in adjusted_fitness]
-    r = random.random()
-    cumulative = 0
-    for i, prob in enumerate(probabilities):
-        cumulative += prob
-        if r <= cumulative:
-            return population[i]
-    return population[-1]
-
-
-def rank_selection(population, fitness_scores):
-    """Rank-based selection: selection based on rank rather than absolute fitness"""
-    # Create list of (index, fitness) pairs and sort by fitness
-    indexed_fitness = list(enumerate(fitness_scores))
-    indexed_fitness.sort(key=lambda x: x[1], reverse=True)
-    
-    # Assign ranks (higher fitness = higher rank)
-    ranks = [len(population) - i for i in range(len(population))]
-    
-    # Calculate selection probabilities based on ranks
-    total_rank = sum(ranks)
-    probabilities = [r / total_rank for r in ranks]
-    
-    # Select based on probabilities
-    r = random.random()
-    cumulative = 0
-    for i, prob in enumerate(probabilities):
-        cumulative += prob
-        if r <= cumulative:
-            return population[indexed_fitness[i][0]]
-    return population[indexed_fitness[-1][0]]
-
-
-# ==================== CROSSOVER METHODS ====================
-
-def single_point_crossover(parent1, parent2):
-    """Single-point crossover for schedules"""
-    min_len = min(len(parent1), len(parent2))
-    
-    if min_len < 2:
-        return copy.deepcopy(parent1 if random.random() < 0.5 else parent2)
-    
-    point = random.randint(1, min_len - 1)
-    child_matches = []
-    seen_pairs = set()
-    
-    # Take matches from parent1 up to crossover point
-    for i in range(point):
-        if i < len(parent1):
-            match = copy.deepcopy(parent1[i])
-            pair_key = f"{match.team1}_{match.team2}"
-            if pair_key not in seen_pairs:
-                seen_pairs.add(pair_key)
-                child_matches.append(match)
-    
-    # Take matches from parent2 after crossover point
-    for i in range(point, len(parent2)):
-        if i < len(parent2):
-            match = copy.deepcopy(parent2[i])
-            pair_key = f"{match.team1}_{match.team2}"
-            if pair_key not in seen_pairs:
-                seen_pairs.add(pair_key)
-                child_matches.append(match)
-    
-    # Fill remaining if needed
-    if len(child_matches) < min_len:
-        all_matches = []
-        seen_pairs = set()
-        for match in parent1 + parent2:
-            pair_key = f"{match.team1}_{match.team2}"
-            if pair_key not in seen_pairs:
-                seen_pairs.add(pair_key)
-                all_matches.append(copy.deepcopy(match))
+                
+                # If venue change didn't work, try changing time
+                if not fixed:
+                    for new_time in available_times:
+                        new_key = (match.date, new_time, match.venue)
+                        if new_key not in venue_slots:
+                            match.time = new_time
+                            venue_slots[new_key] = True
+                            repaired.append(match)
+                            fixed = True
+                            break
+                
+                # If still not fixed, try changing both venue and time
+                if not fixed:
+                    for new_venue in available_venues:
+                        for new_time in available_times:
+                            new_key = (match.date, new_time, new_venue)
+                            if new_key not in venue_slots:
+                                match.venue = new_venue
+                                match.time = new_time
+                                venue_slots[new_key] = True
+                                repaired.append(match)
+                                fixed = True
+                                break
+                        if fixed:
+                            break
         
-        random.shuffle(all_matches)
-        for match in all_matches:
-            if len(child_matches) >= min_len:
-                break
-            pair_key = f"{match.team1}_{match.team2}"
-            if pair_key not in {f"{m.team1}_{m.team2}" for m in child_matches}:
-                child_matches.append(match)
-    
-    child_matches.sort(key=lambda m: m.date)
-    return child_matches
-
-
-def two_point_crossover(parent1, parent2):
-    """Two-point crossover for schedules"""
-    min_len = min(len(parent1), len(parent2))
-    
-    if min_len < 3:
-        return single_point_crossover(parent1, parent2)
-    
-    point1, point2 = sorted(random.sample(range(1, min_len), 2))
-    child_matches = []
-    seen_pairs = set()
-    
-    # Part from parent 1 (before point1)
-    for i in range(point1):
-        if i < len(parent1):
-            match = copy.deepcopy(parent1[i])
-            pair_key = f"{match.team1}_{match.team2}"
-            if pair_key not in seen_pairs:
-                seen_pairs.add(pair_key)
-                child_matches.append(match)
-    
-    # Part from parent 2 (between point1 and point2)
-    for i in range(point1, point2):
-        if i < len(parent2):
-            match = copy.deepcopy(parent2[i])
-            pair_key = f"{match.team1}_{match.team2}"
-            if pair_key not in seen_pairs:
-                seen_pairs.add(pair_key)
-                child_matches.append(match)
-    
-    # Part from parent 1 (after point2)
-    for i in range(point2, len(parent1)):
-        if i < len(parent1):
-            match = copy.deepcopy(parent1[i])
-            pair_key = f"{match.team1}_{match.team2}"
-            if pair_key not in seen_pairs:
-                seen_pairs.add(pair_key)
-                child_matches.append(match)
-    
-    # Fill if needed
-    if len(child_matches) < min_len:
-        all_matches = []
-        seen_pairs = set()
-        for match in parent1 + parent2:
-            pair_key = f"{match.team1}_{match.team2}"
-            if pair_key not in seen_pairs:
-                seen_pairs.add(pair_key)
-                all_matches.append(copy.deepcopy(match))
+        # If we lost too many matches, try to regenerate
+        if len(repaired) < expected_matches * 0.9:  # Lost more than 10%
+            repaired = regenerate_missing_matches(repaired, teams, venues, match_times, all_dates, min_rest_days)
         
-        random.shuffle(all_matches)
-        for match in all_matches:
-            if len(child_matches) >= min_len:
-                break
-            pair_key = f"{match.team1}_{match.team2}"
-            if pair_key not in {f"{m.team1}_{m.team2}" for m in child_matches}:
-                child_matches.append(match)
+        # Keep track of best repair attempt
+        if len(repaired) > best_match_count:
+            best_repaired = repaired
+            best_match_count = len(repaired)
+        
+        # If we have enough matches and it's valid, return
+        if len(repaired) >= expected_matches * 0.95:  # At least 95% of expected
+            repaired.sort(key=lambda m: m.date)
+            return repaired
+        
+        # For next retry, use the repaired schedule as base
+        schedule = repaired
     
-    child_matches.sort(key=lambda m: m.date)
-    return child_matches
+    # Return best attempt
+    best_repaired.sort(key=lambda m: m.date)
+    return best_repaired
 
 
-# ==================== MUTATION METHODS ====================
-
-def swap_mutation(schedule, mutation_rate=0.1):
-    """Swap two random matches in the schedule"""
-    mutated = copy.deepcopy(schedule)
-    
-    if len(mutated) < 2:
-        return mutated
-    
-    if random.random() < mutation_rate:
-        idx1, idx2 = random.sample(range(len(mutated)), 2)
-        mutated[idx1], mutated[idx2] = mutated[idx2], mutated[idx1]
-    
-    return mutated
-
-
-def change_venue_mutation(schedule, venues, mutation_rate=0.1):
-    """Change venue of a random match"""
-    mutated = copy.deepcopy(schedule)
-    
-    if len(mutated) == 0:
-        return mutated
-    
-    if random.random() < mutation_rate:
-        idx = random.randint(0, len(mutated) - 1)
-        old_venue = mutated[idx].venue
-        new_venue = random.choice([v for v in venues if v != old_venue])
-        mutated[idx].venue = new_venue
-    
-    return mutated
-
-
-def change_time_mutation(schedule, match_times, mutation_rate=0.1):
-    """Change time of a random match"""
-    mutated = copy.deepcopy(schedule)
-    
-    if len(mutated) == 0:
-        return mutated
-    
-    if random.random() < mutation_rate:
-        idx = random.randint(0, len(mutated) - 1)
-        old_time = mutated[idx].time
-        new_time = random.choice([t for t in match_times if t != old_time])
-        mutated[idx].time = new_time
-    
-    return mutated
-
+# ==================== SELECTION, CROSSOVER, MUTATION ====================
+# All imported from data.genetic_operations (Task 3) - no duplication!
 
 def apply_mutation(schedule, venues, match_times, mutation_rate=0.1):
     """
     Apply mutation based on mutation_rate
+    Uses mutation functions from Task 3 (genetic_operations)
     
     The mutation_rate determines the probability that a mutation will occur.
     If mutation occurs, a random mutation type is chosen.
     """
-    mutated = copy.deepcopy(schedule)
-    
-    # Check if mutation should occur
-    if random.random() >= mutation_rate:
-        return mutated
-    
     # Choose mutation type (can be weighted)
     mutation_type = random.choice(['swap', 'venue', 'time'])
     
-    if mutation_type == 'swap' and len(mutated) >= 2:
-        idx1, idx2 = random.sample(range(len(mutated)), 2)
-        mutated[idx1], mutated[idx2] = mutated[idx2], mutated[idx1]
-    elif mutation_type == 'venue' and len(mutated) > 0:
-        idx = random.randint(0, len(mutated) - 1)
-        old_venue = mutated[idx].venue
-        new_venue = random.choice([v for v in venues if v != old_venue])
-        mutated[idx].venue = new_venue
-    elif mutation_type == 'time' and len(mutated) > 0:
-        idx = random.randint(0, len(mutated) - 1)
-        old_time = mutated[idx].time
-        new_time = random.choice([t for t in match_times if t != old_time])
-        mutated[idx].time = new_time
+    if mutation_type == 'swap':
+        return swap_mutation(schedule, mutation_rate)
+    elif mutation_type == 'venue':
+        return change_venue_mutation(schedule, venues, mutation_rate)
+    elif mutation_type == 'time':
+        return change_time_mutation(schedule, match_times, mutation_rate)
     
-    return mutated
+    return copy.deepcopy(schedule)
 
 
 # ==================== GENETIC ALGORITHM MAIN LOOP ====================
@@ -507,7 +386,7 @@ def run_genetic_algorithm(
     tournament_size : int
         Size of tournament for tournament selection
     crossover_method : str
-        'single_point' or 'two_point'
+        'single_point', 'two_point', or 'uniform'
     verbose : bool
         Print progress information
     
@@ -525,7 +404,7 @@ def run_genetic_algorithm(
     if verbose:
         print(f"Initializing population of {population_size} schedules...")
     
-    population = [generate_weekly_schedule(teams, venues, all_dates, match_times) 
+    population = [generate_weekly_schedule(teams, venues, all_dates, match_times, min_rest_days=4, start_date=start_date) 
                   for _ in range(population_size)]
     
     # Evaluate initial population
@@ -583,6 +462,8 @@ def run_genetic_algorithm(
             if random.random() < crossover_rate:
                 if crossover_method == 'two_point':
                     child = two_point_crossover(parent1, parent2)
+                elif crossover_method == 'uniform':
+                    child = uniform_crossover(parent1, parent2)
                 else:
                     child = single_point_crossover(parent1, parent2)
             else:
