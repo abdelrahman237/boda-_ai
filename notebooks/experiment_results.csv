@@ -1,0 +1,7 @@
+Experiment,Population Size,Generations,Mutation Rate,Crossover Rate,Elitism Count,Selection Method,Tournament Size,Crossover Method,Best Fitness Mean,Best Fitness Std,Best Fitness Max,Best Fitness Min,Avg Fitness Mean
+1,30,50,0.1,0.8,2,tournament,3,single_point,88.80,0.57,89.20,88.00,88.47
+2,100,50,0.1,0.8,2,tournament,3,single_point,93.60,0.57,94.00,92.80,93.58
+3,50,50,0.3,0.8,2,tournament,3,single_point,94.80,0.57,95.20,94.00,94.35
+4,50,50,0.1,0.8,2,roulette,3,single_point,92.20,0.49,92.80,91.60,91.21
+5,50,50,0.1,0.8,2,tournament,3,two_point,91.60,0.98,92.80,90.40,91.46
+6,100,100,0.15,0.8,5,tournament,5,two_point,98.00,0.57,98.80,97.60,97.94
